@@ -121,14 +121,8 @@ type TransactionData[tx any] struct {
 }
 
 func (e *EthereumFetcher[block, tx]) NewTransaction(position int, transaction *types.Transaction) (Transaction[tx], error) {
-	// 检查协议格式是否正确
-	err := e.parser.CheckFormat(transaction.Data())
+	from, err := getTxSender(transaction)
 	if err != nil {
-		return nil, err
-	}
-
-	var from common.Address
-	if from, err = getTxSender(transaction); err != nil {
 		return nil, err
 	}
 
@@ -173,7 +167,7 @@ func (e *EthereumFetcher[block, tx]) getClient() *ethclient.Client {
 }
 
 func (e *EthereumFetcher[block, tx]) GetBlockNumber(ctx context.Context) (uint64, error) {
-	return e.getClient().BlockNumber(ctx)
+	return e.clients[0].BlockNumber(ctx)
 }
 
 func (e *EthereumFetcher[block, tx]) GetBlockHeaderByNumber(ctx context.Context, blockNumber uint64) (BlockHeader, error) {
@@ -181,7 +175,7 @@ func (e *EthereumFetcher[block, tx]) GetBlockHeaderByNumber(ctx context.Context,
 	if blockNumber != 0 {
 		params = new(big.Int).SetUint64(blockNumber)
 	}
-	header, err := e.getClient().HeaderByNumber(ctx, params)
+	header, err := e.clients[0].HeaderByNumber(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -193,15 +187,36 @@ func (e *EthereumFetcher[block, tx]) GetBlockHeaderByNumber(ctx context.Context,
 }
 
 func (e *EthereumFetcher[block, tx]) GetBlockByNumber(ctx context.Context, targetBlock uint64) (Block[block, tx], error) {
-	fetchedBlock, err := e.getClient().BlockByNumber(ctx, new(big.Int).SetUint64(targetBlock))
-	if err != nil {
-		return nil, err
+	currentBlock := &types.Block{}
+
+	for idx, cli := range e.clients {
+		localClient := cli
+		fetchedBlock, err := localClient.BlockByNumber(ctx, new(big.Int).SetUint64(targetBlock))
+		if err != nil {
+			return nil, err
+		}
+
+		if idx > 0 && (fetchedBlock.Hash() != currentBlock.Hash() || fetchedBlock.Transactions().Len() != currentBlock.Transactions().Len()) {
+			e.logger.Errorf(
+				"The block hash is inconsistent. client_idx: %d, last_number: %d, last_hash: %v, tx_count: %d, current_number: %d, current_hash: %v, tx_count: %d",
+				idx, currentBlock.NumberU64(), currentBlock.Hash(), currentBlock.Transactions().Len(), fetchedBlock.NumberU64(), fetchedBlock.Hash(), fetchedBlock.Transactions().Len(),
+			)
+			return nil, fmt.Errorf("block inconsistency detected at client index %d", idx)
+		}
+
+		currentBlock = fetchedBlock
 	}
 
 	b := &BlockData[block, tx]{}
-	for position, transaction := range fetchedBlock.Transactions() {
-		var newTx Transaction[tx]
-		if newTx, err = e.NewTransaction(position, transaction); err != nil {
+
+	for position, transaction := range currentBlock.Transactions() {
+		// 检查协议格式是否正确
+		if err := e.parser.CheckFormat(transaction.Data()); err != nil {
+			continue
+		}
+
+		newTx, err := e.NewTransaction(position, transaction)
+		if err != nil {
 			return nil, err
 		}
 		b.AppendTransaction(newTx)
@@ -209,7 +224,6 @@ func (e *EthereumFetcher[block, tx]) GetBlockByNumber(ctx context.Context, targe
 
 	return b, nil
 }
-
 func getTxSender(tx *types.Transaction) (common.Address, error) {
 	switch {
 	case tx.Type() == types.AccessListTxType:
