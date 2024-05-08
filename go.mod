@@ -1,4 +1,4 @@
-module ethereum-helper
+module github.com/nuominmin/ethereum-helper
 
 go 1.22.2
 
