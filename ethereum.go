@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/go-kratos/kratos/v2/log"
 	"math/big"
+	"sync/atomic"
 )
 
 type Converter[tx any] interface {
@@ -34,11 +35,14 @@ type Parser[tx any] interface {
 	Parse(tx) (ProtocolAdapter, error)
 }
 
-func New[block any, tx any](endpoints []string, parser Parser[tx], converter Converter[tx], logger log.Logger) (BlockFetcher[block, tx], error) {
+func New[block any, tx any](endpoints []string, parser Parser[tx], converter Converter[tx], l log.Logger) (BlockFetcher[block, tx], error) {
+	logger := log.NewHelper(log.With(l, "module", "fetcher"))
+
 	var clients []*ethclient.Client
 	for _, endpoint := range endpoints {
 		c, err := rpc.DialOptions(context.Background(), endpoint)
 		if err != nil {
+			logger.Error(fmt.Sprintf("Failed to connect to Ethereum endpoint: %s, error: %v", endpoint, err))
 			return nil, err
 		}
 
@@ -48,7 +52,7 @@ func New[block any, tx any](endpoints []string, parser Parser[tx], converter Con
 	return &EthereumFetcher[block, tx]{
 		clients:   clients,
 		parser:    parser,
-		logger:    log.NewHelper(log.With(logger, "module", "fetcher")),
+		logger:    logger,
 		converter: converter,
 	}, nil
 }
@@ -106,7 +110,7 @@ type Transaction[tx any] interface {
 	GetData() tx
 	GetFrom() string
 	GetTo() string
-	GetPosition() string
+	GetPosition() int
 }
 
 type TransactionData[tx any] struct {
@@ -150,8 +154,8 @@ func (t *TransactionData[tx]) GetFrom() string {
 func (t *TransactionData[tx]) GetTo() string {
 	return t.to
 }
-func (t *TransactionData[tx]) GetPosition() string {
-	return t.to
+func (t *TransactionData[tx]) GetPosition() int {
+	return t.position
 }
 
 type EthereumFetcher[block any, tx any] struct {
@@ -159,10 +163,17 @@ type EthereumFetcher[block any, tx any] struct {
 	parser    Parser[tx]
 	logger    *log.Helper
 	converter Converter[tx]
+
+	clientIdx uint64
+}
+
+func (e *EthereumFetcher[block, tx]) getClient() *ethclient.Client {
+	// 减 1 是因为 AddUint64 是先加再返回， 首次将会是 0
+	return e.clients[(atomic.AddUint64(&e.clientIdx, 1)-1)%uint64(len(e.clients))]
 }
 
 func (e *EthereumFetcher[block, tx]) GetBlockNumber(ctx context.Context) (uint64, error) {
-	return e.clients[0].BlockNumber(ctx)
+	return e.getClient().BlockNumber(ctx)
 }
 
 func (e *EthereumFetcher[block, tx]) GetBlockHeaderByNumber(ctx context.Context, blockNumber uint64) (BlockHeader, error) {
@@ -170,7 +181,7 @@ func (e *EthereumFetcher[block, tx]) GetBlockHeaderByNumber(ctx context.Context,
 	if blockNumber != 0 {
 		params = new(big.Int).SetUint64(blockNumber)
 	}
-	header, err := e.clients[0].HeaderByNumber(ctx, params)
+	header, err := e.getClient().HeaderByNumber(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -182,31 +193,15 @@ func (e *EthereumFetcher[block, tx]) GetBlockHeaderByNumber(ctx context.Context,
 }
 
 func (e *EthereumFetcher[block, tx]) GetBlockByNumber(ctx context.Context, targetBlock uint64) (Block[block, tx], error) {
-	var currentBlock *types.Block
-
-	for idx, cli := range e.clients {
-		localClient := cli
-		fetchedBlock, err := localClient.BlockByNumber(ctx, new(big.Int).SetUint64(targetBlock))
-		if err != nil {
-			return nil, err
-		}
-
-		if currentBlock != nil && (fetchedBlock.Hash() != currentBlock.Hash() || fetchedBlock.Transactions().Len() != currentBlock.Transactions().Len()) {
-			e.logger.Warnf(
-				"区块hash不一致. client_idx: %d, last_number: %d, last_hash: %v, tx_count: %d, current_number: %d, current_hash: %v, tx_count: %d",
-				idx, currentBlock.NumberU64(), currentBlock.Hash(), currentBlock.Transactions().Len(), fetchedBlock.NumberU64(), fetchedBlock.Hash(), fetchedBlock.Transactions().Len(),
-			)
-			return nil, fmt.Errorf("block inconsistency detected at client index %d", idx)
-		}
-
-		currentBlock = fetchedBlock
+	fetchedBlock, err := e.getClient().BlockByNumber(ctx, new(big.Int).SetUint64(targetBlock))
+	if err != nil {
+		return nil, err
 	}
 
 	b := &BlockData[block, tx]{}
-
-	for position, transaction := range currentBlock.Transactions() {
-		newTx, err := e.NewTransaction(position, transaction)
-		if err != nil {
+	for position, transaction := range fetchedBlock.Transactions() {
+		var newTx Transaction[tx]
+		if newTx, err = e.NewTransaction(position, transaction); err != nil {
 			return nil, err
 		}
 		b.AppendTransaction(newTx)
