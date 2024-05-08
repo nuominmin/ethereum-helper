@@ -123,8 +123,8 @@ func (e *EthereumFetcher[block, tx]) NewTransaction(position int, transaction *t
 		return nil, err
 	}
 
-	from, err := GetTxSender(transaction)
-	if err != nil {
+	var from common.Address
+	if from, err = getTxSender(transaction); err != nil {
 		return nil, err
 	}
 
@@ -215,16 +215,13 @@ func (e *EthereumFetcher[block, tx]) GetBlockByNumber(ctx context.Context, targe
 	return b, nil
 }
 
-func GetTxSender(tx *types.Transaction) (common.Address, error) {
-	var signer types.Signer
+func getTxSender(tx *types.Transaction) (common.Address, error) {
 	switch {
 	case tx.Type() == types.AccessListTxType:
-		signer = types.NewEIP2930Signer(tx.ChainId())
+		return types.Sender(types.NewEIP2930Signer(tx.ChainId()), tx)
 	case tx.Type() == types.DynamicFeeTxType:
-		signer = types.NewLondonSigner(tx.ChainId())
+		return types.Sender(types.NewLondonSigner(tx.ChainId()), tx)
 	default:
-		signer = types.NewEIP155Signer(tx.ChainId())
+		return types.Sender(types.NewEIP155Signer(tx.ChainId()), tx)
 	}
-	sender, err := types.Sender(signer, tx)
-	return sender, err
 }
