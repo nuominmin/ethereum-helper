@@ -2,7 +2,10 @@ module github.com/nuominmin/ethereum-helper
 
 go 1.22.5
 
-require github.com/ethereum/go-ethereum v1.14.7
+require (
+	github.com/ethereum/go-ethereum v1.14.7
+	github.com/shopspring/decimal v1.4.0
+)
 
 require (
 	github.com/bits-and-blooms/bitset v1.10.0 // indirect
