@@ -3,8 +3,8 @@ package ethereumhelper
 import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/core/types"
+	"io"
 	"log"
-	"strings"
 )
 
 type Transactions []Transaction
@@ -42,9 +42,9 @@ type Parser struct {
 	eventParsers  []ContractEventParser
 }
 
-func NewParser(contractABI string) *Parser {
+func NewParser(abiReader io.Reader) *Parser {
 	// 解析合约ABI
-	parsedABI, err := abi.JSON(strings.NewReader(contractABI))
+	parsedABI, err := abi.JSON(abiReader)
 	if err != nil {
 		log.Fatalf("Failed to parse contract ABI: %v", err)
 	}
