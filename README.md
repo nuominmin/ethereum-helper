@@ -1,4 +1,14 @@
-### 示例
+# Ethereum Helper
+这个包提供了处理以太坊日志和ABI的工具
+
+## 安装
+你可以使用' go get '来安装这个包:
+
+```sh
+go get github.com/yourusername/ethereumhelper
+```
+
+## 示例
 
 ``` go
 package ierc
