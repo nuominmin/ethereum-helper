@@ -5,7 +5,7 @@
 你可以使用' go get '来安装这个包:
 
 ```sh
-go get github.com/yourusername/ethereumhelper
+go get github.com/nuominmin/ethereum-helper
 ```
 
 ## 示例
