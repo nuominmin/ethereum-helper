@@ -41,13 +41,13 @@ func NewBlockRangeProcessor[T any](ranges ...Range[T]) (*BlockRangeProcessor[T],
 	}, nil
 }
 
-func (pb *BlockRangeProcessor[T]) Handle(blockNumber uint64, handleFn func(data T) error) error {
+func (pb *BlockRangeProcessor[T]) Handle(blockNumber uint64, handler func(data T) error) error {
 	for i := 0; i < len(pb.ranges); i++ {
 		if blockNumber >= pb.ranges[i].StartBlock {
-			return handleFn(pb.ranges[i].data)
+			return handler(pb.ranges[i].data)
 		}
 	}
 
 	var data T
-	return handleFn(data)
+	return handler(data)
 }
