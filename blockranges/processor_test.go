@@ -19,16 +19,16 @@ func TestBlockRangeProcessor_Handle(t *testing.T) {
 	}
 
 	ranges := []Range[Conf]{}
-	ranges = append(ranges, Range[Conf]{StartBlock: 3000, data: Conf{
+	ranges = append(ranges, Range[Conf]{StartBlock: 3000, Data: Conf{
 		WalletAddr: "BBBB", ContractAddr: "BBBB", CodeVersion: "v2",
 	}})
-	ranges = append(ranges, Range[Conf]{StartBlock: 2000, data: Conf{
+	ranges = append(ranges, Range[Conf]{StartBlock: 2000, Data: Conf{
 		WalletAddr: "AAAA", ContractAddr: "AAAA", CodeVersion: "v1",
 	}})
-	ranges = append(ranges, Range[Conf]{StartBlock: 4500, data: Conf{
+	ranges = append(ranges, Range[Conf]{StartBlock: 4500, Data: Conf{
 		WalletAddr: "CCCC", ContractAddr: "CCCC", CodeVersion: "v4",
 	}})
-	ranges = append(ranges, Range[Conf]{StartBlock: 4000, data: Conf{
+	ranges = append(ranges, Range[Conf]{StartBlock: 4000, Data: Conf{
 		WalletAddr: "CCCC", ContractAddr: "CCCC", CodeVersion: "v3",
 	}})
 

@@ -8,7 +8,7 @@ import (
 // Range 范围
 type Range[T any] struct {
 	StartBlock uint64 // 包含
-	data       T
+	Data       T
 }
 
 // ErrOverlappingRanges 用于表示区间重叠错误
@@ -51,7 +51,7 @@ func NewBlockRangeProcessor[T any](ranges ...Range[T]) (*BlockRangeProcessor[T],
 func (pb *BlockRangeProcessor[T]) Handle(blockNumber uint64, handler func(data T) error) error {
 	for i := 0; i < len(pb.ranges); i++ {
 		if blockNumber >= pb.ranges[i].StartBlock {
-			return handler(pb.ranges[i].data)
+			return handler(pb.ranges[i].Data)
 		}
 	}
 
