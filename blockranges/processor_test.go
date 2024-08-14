@@ -32,10 +32,13 @@ func TestBlockRangeProcessor_Handle(t *testing.T) {
 		WalletAddr: "CCCC", ContractAddr: "CCCC", CodeVersion: "v3",
 	}})
 
-	p, err := NewBlockRangeProcessor[Conf](ranges...)
-	if err != nil {
-		t.Errorf("NewBlockRangeProcessor[Conf] error: %s", err)
-		return
+	p := NewBlockRangeProcessor[Conf]()
+	for i := 0; i < len(ranges); i++ {
+		err := p.AddRange(ranges[i])
+		if err != nil {
+			t.Errorf("NewBlockRangeProcessor[Conf] error: %s", err)
+			return
+		}
 	}
 
 	_ = p.Handle(1000, func(data Conf) error {

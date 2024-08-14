@@ -24,28 +24,31 @@ type BlockRangeProcessor[T any] struct {
 	ranges []Range[T]
 }
 
-func NewBlockRangeProcessor[T any](ranges ...Range[T]) (*BlockRangeProcessor[T], error) {
-	if len(ranges) == 0 {
-		return nil, ErrRangeIsEmpty
+func NewBlockRangeProcessor[T any]() *BlockRangeProcessor[T] {
+	return &BlockRangeProcessor[T]{}
+}
+
+// AddRange 添加一个新的范围到 BlockRangeProcessor 中
+func (pb *BlockRangeProcessor[T]) AddRange(r Range[T]) error {
+	if r.StartBlock == 0 {
+		return ErrInvalidStartBlock
 	}
 
-	sort.Slice(ranges, func(i, j int) bool {
+	sort.Slice(pb.ranges, func(i, j int) bool {
 		// 根据 StartBlock 降序
-		return ranges[i].StartBlock > ranges[j].StartBlock
+		return pb.ranges[i].StartBlock > pb.ranges[j].StartBlock
 	})
 
-	for i := 0; i < len(ranges); i++ {
-		if ranges[i].StartBlock == 0 {
-			return nil, ErrInvalidStartBlock
+	for i := 0; i < len(pb.ranges); i++ {
+		if pb.ranges[i].StartBlock == 0 {
+			return ErrInvalidStartBlock
 		}
-		if i > 0 && ranges[i].StartBlock == ranges[i-1].StartBlock {
-			return nil, ErrOverlappingRanges
+		if i > 0 && pb.ranges[i].StartBlock == pb.ranges[i-1].StartBlock {
+			return ErrOverlappingRanges
 		}
 	}
 
-	return &BlockRangeProcessor[T]{
-		ranges: ranges,
-	}, nil
+	return nil
 }
 
 func (pb *BlockRangeProcessor[T]) Handle(blockNumber uint64, handler func(data T) error) error {
