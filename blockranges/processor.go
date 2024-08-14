@@ -17,11 +17,18 @@ var ErrOverlappingRanges = errors.New("config have overlapping ranges")
 // ErrInvalidStartBlock 用于表示起始块无效错误
 var ErrInvalidStartBlock = errors.New("start block must be greater than 0")
 
+// ErrRangeIsEmpty range 是空的
+var ErrRangeIsEmpty = errors.New("range is empty")
+
 type BlockRangeProcessor[T any] struct {
 	ranges []Range[T]
 }
 
 func NewBlockRangeProcessor[T any](ranges ...Range[T]) (*BlockRangeProcessor[T], error) {
+	if len(ranges) == 0 {
+		return nil, ErrRangeIsEmpty
+	}
+
 	sort.Slice(ranges, func(i, j int) bool {
 		// 根据 StartBlock 降序
 		return ranges[i].StartBlock > ranges[j].StartBlock
