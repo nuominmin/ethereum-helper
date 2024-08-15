@@ -34,6 +34,8 @@ func (pb *BlockRangeProcessor[T]) AddRange(r Range[T]) error {
 		return ErrInvalidStartBlock
 	}
 
+	pb.ranges = append(pb.ranges, r)
+
 	sort.Slice(pb.ranges, func(i, j int) bool {
 		// 根据 StartBlock 降序
 		return pb.ranges[i].StartBlock > pb.ranges[j].StartBlock
