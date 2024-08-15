@@ -54,12 +54,14 @@ func (pb *BlockRangeProcessor[T]) AddRange(r Range[T]) error {
 }
 
 func (pb *BlockRangeProcessor[T]) Handle(blockNumber uint64, handler func(data T) error) error {
+	return handler(pb.GetData(blockNumber))
+}
+
+func (pb *BlockRangeProcessor[T]) GetData(blockNumber uint64) (data T) {
 	for i := 0; i < len(pb.ranges); i++ {
 		if blockNumber >= pb.ranges[i].StartBlock {
-			return handler(pb.ranges[i].Data)
+			return pb.ranges[i].Data
 		}
 	}
-
-	var data T
-	return handler(data)
+	return data
 }
