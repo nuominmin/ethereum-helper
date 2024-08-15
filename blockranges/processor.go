@@ -20,6 +20,9 @@ var ErrInvalidStartBlock = errors.New("start block must be greater than 0")
 // ErrRangeIsEmpty range 是空的
 var ErrRangeIsEmpty = errors.New("range is empty")
 
+// ErrDataNotFound 数据不存在
+var ErrDataNotFound = errors.New("data not found for the given block number")
+
 type BlockRangeProcessor[T any] struct {
 	ranges []Range[T]
 }
@@ -54,14 +57,18 @@ func (pb *BlockRangeProcessor[T]) AddRange(r Range[T]) error {
 }
 
 func (pb *BlockRangeProcessor[T]) Handle(blockNumber uint64, handler func(data T) error) error {
-	return handler(pb.GetData(blockNumber))
+	data, ok := pb.GetData(blockNumber)
+	if !ok {
+		return ErrDataNotFound
+	}
+	return handler(data)
 }
 
-func (pb *BlockRangeProcessor[T]) GetData(blockNumber uint64) (data T) {
+func (pb *BlockRangeProcessor[T]) GetData(blockNumber uint64) (data T, ok bool) {
 	for i := 0; i < len(pb.ranges); i++ {
 		if blockNumber >= pb.ranges[i].StartBlock {
-			return pb.ranges[i].Data
+			return pb.ranges[i].Data, true
 		}
 	}
-	return data
+	return data, false
 }
