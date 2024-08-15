@@ -102,3 +102,10 @@ func (p *Parser) ParserEvents(block *types.Block, txLogs []*types.Log) Transacti
 	}
 	return events
 }
+
+// Close 释放资源
+func (p *Parser) Close() error {
+	p.methodParsers = nil
+	p.eventParsers = nil
+	return nil
+}
