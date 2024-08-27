@@ -31,11 +31,11 @@ func NewContract(ethClient *ethclient.Client, contractAddr string, abiReader io.
 	}
 }
 
-func ContractRead[T any](ctx context.Context, c *Contract, methodName string) (T, error) {
+func ContractRead[T any](ctx context.Context, c *Contract, methodName string, args ...interface{}) (T, error) {
 	var outputData T
 
 	// 准备方法调用
-	callData, err := c.parsedABI.Pack(methodName)
+	callData, err := c.parsedABI.Pack(methodName, args...)
 	if err != nil {
 		return outputData, fmt.Errorf("failed to parse abi, error: %v", err)
 	}
