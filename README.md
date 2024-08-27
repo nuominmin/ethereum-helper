@@ -8,11 +8,10 @@
 go get github.com/nuominmin/ethereum-helper
 ```
 
-## 示例
+
+## Unpack 示例
 
 ``` go
-package ierc
-
 import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -73,4 +72,19 @@ type Burn struct {
 func UnpackBurn(parsedABI abi.ABI, log *types.Log) (event *Burn, err error) {
 	return ethereumhelper.Unpack[Burn](parsedABI, "Burn", log)
 }
+```
+
+
+## Contract 示例
+```go
+
+    contract := ethereumhelper.NewContract(h.ethereumClient.EthClient(), contractAddr, strings.NewReader(abiJson))
+
+    methodName := "treasuryFee"
+    treasuryFeeData, err := ethereumhelper.ContractRead[*big.Int](ctx, c, methodName)
+    if err != nil {
+        return fmt.Errorf("contract read %s failed. error: %v", methodName, err)
+    }
+
+    treasuryFee := decimal.NewFromBigInt(treasuryFeeData, 0).Div(decimal.NewFromInt(1000))
 ```
