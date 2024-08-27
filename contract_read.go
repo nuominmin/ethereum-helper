@@ -9,12 +9,14 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"io"
 	"log"
+	"time"
 )
 
 type Contract struct {
-	ethClient    *ethclient.Client
-	parsedABI    abi.ABI
-	contractAddr common.Address
+	ethClient    *ethclient.Client // 以太坊客户端
+	parsedABI    abi.ABI           // 合约ABI
+	contractAddr common.Address    // 合约地址
+	retryNum     int               // 重试次数
 }
 
 func NewContract(ethClient *ethclient.Client, contractAddr string, abiReader io.Reader) *Contract {
@@ -31,6 +33,10 @@ func NewContract(ethClient *ethclient.Client, contractAddr string, abiReader io.
 	}
 }
 
+func (c *Contract) SetRetryNum(n int) {
+	c.retryNum = n + 1
+}
+
 func ContractRead[T any](ctx context.Context, c *Contract, methodName string, args ...interface{}) (T, error) {
 	var outputData T
 
@@ -40,12 +46,25 @@ func ContractRead[T any](ctx context.Context, c *Contract, methodName string, ar
 		return outputData, fmt.Errorf("failed to parse abi, error: %v", err)
 	}
 
+	num := 1
+	if c.retryNum > 0 {
+		num += c.retryNum
+	}
+
 	// 执行调用
 	var result []byte
-	if result, err = c.ethClient.CallContract(ctx, ethereum.CallMsg{
-		To:   &c.contractAddr,
-		Data: callData,
-	}, nil); err != nil {
+	for i := 0; i < num; i++ {
+		result, err = c.ethClient.CallContract(ctx, ethereum.CallMsg{
+			To:   &c.contractAddr,
+			Data: callData,
+		}, nil)
+		if err == nil {
+			break
+		}
+
+		time.Sleep(time.Duration((i+1)*200) * time.Millisecond)
+	}
+	if err != nil {
 		return outputData, fmt.Errorf("failed to call contract, error: %v", err)
 	}
 
