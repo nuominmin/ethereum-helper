@@ -19,10 +19,13 @@ func TestContractRead(t *testing.T) {
 		return
 	}
 	ethClient := ethclient.NewClient(rpcClient)
-	contract := ethereumhelper.NewContractReadHandler(ethClient, ethereumhelper.ContractAddr, strings.NewReader(ethereumhelper.ContractAbiJson))
+	contract := ethereumhelper.NewContractHandler(ethClient)
+	abi := strings.NewReader(ethereumhelper.ContractAbiJson)
+	contractAddr := common.HexToAddress(ethereumhelper.ContractAddr)
+	methodName := ethereumhelper.ContractReadMethodName
 
 	var res *big.Int
-	if res, err = ethereumhelper.ContractRead[*big.Int](context.Background(), contract, ethereumhelper.ContractReadMethodName); err != nil {
+	if res, err = ethereumhelper.ContractRead[*big.Int](context.Background(), contract, abi, contractAddr, methodName); err != nil {
 		t.Error(err)
 		return
 	}
@@ -37,14 +40,20 @@ func TestContractWrite(t *testing.T) {
 		return
 	}
 	ethClient := ethclient.NewClient(rpcClient)
-	contract := ethereumhelper.NewContractWriteHandler(ethClient, ethereumhelper.ContractAddr, strings.NewReader(ethereumhelper.ContractAbiJson), ethereumhelper.PrivateKey)
+	contract := ethereumhelper.NewContractHandler(ethClient)
+	abi := strings.NewReader(ethereumhelper.ContractAbiJson)
+	contractAddr := common.HexToAddress(ethereumhelper.ContractAddr)
+	methodName := ethereumhelper.ContractWriteMethodName
+	privateKey := ethereumhelper.PrivateKey
+
+	args := []interface{}{common.HexToAddress(ethereumhelper.ContractAddr), big.NewInt(2)}
 
 	var txHash common.Hash
-	txHash, err = ethereumhelper.ContractWrite(context.Background(), contract, ethereumhelper.ContractWriteMethodName, common.HexToAddress(ethereumhelper.ContractAddr), big.NewInt(2))
+	txHash, err = ethereumhelper.ContractWrite(context.Background(), contract, abi, contractAddr, privateKey, methodName, args...)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	t.Log(ethereumhelper.ContractWriteMethodName, txHash.String())
+	t.Logf("%s, https://sepolia.etherscan.io/tx/%s", ethereumhelper.ContractWriteMethodName, txHash.String())
 }

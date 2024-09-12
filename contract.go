@@ -17,50 +17,50 @@ import (
 	"time"
 )
 
-type ContractReadHandler struct {
-	ethClient    *ethclient.Client // 以太坊客户端
-	parsedABI    abi.ABI           // 合约ABI
-	contractAddr common.Address    // 合约地址
-	retryNum     int               // 重试次数
+type ContractHandler struct {
+	ethClient *ethclient.Client // 以太坊客户端
+	retryNum  int               // 重试次数
+	chainId   *big.Int
 }
 
-func NewContractReadHandler(ethClient *ethclient.Client, contractAddr string, abiReader io.Reader) *ContractReadHandler {
-	// 解析合约ABI
-	parsedABI, err := abi.JSON(abiReader)
+func NewContractHandler(ethClient *ethclient.Client) *ContractHandler {
+	// 获取当前网络的链ID
+	chainId, err := ethClient.NetworkID(context.Background())
 	if err != nil {
-		log.Fatalf("Failed to parse contract ABI: %v", err)
+		log.Fatalf("failed to get network ID, error: %v", err)
 	}
 
-	return &ContractReadHandler{
-		ethClient:    ethClient,
-		parsedABI:    parsedABI,
-		contractAddr: common.HexToAddress(contractAddr),
+	return &ContractHandler{
+		ethClient: ethClient,
+		retryNum:  1,
+		chainId:   chainId,
 	}
 }
 
-func (c *ContractReadHandler) SetRetryNum(n int) {
+func (c *ContractHandler) SetRetryNum(n int) {
 	c.retryNum = n + 1
 }
 
-func ContractRead[T any](ctx context.Context, c *ContractReadHandler, methodName string, args ...interface{}) (T, error) {
+func ContractRead[T any](ctx context.Context, ch *ContractHandler, abiReader io.Reader, contractAddr common.Address, methodName string, args ...interface{}) (T, error) {
 	var outputData T
 
-	// 准备方法调用
-	callData, err := c.parsedABI.Pack(methodName, args...)
+	// 解析合约ABI
+	parsedABI, err := abi.JSON(abiReader)
 	if err != nil {
-		return outputData, fmt.Errorf("failed to parse abi, error: %v", err)
+		return outputData, fmt.Errorf("failed to parse contract ABI, error: %v", err)
 	}
 
-	num := 1
-	if c.retryNum > 0 {
-		num += c.retryNum
+	// 准备方法调用
+	var callData []byte
+	if callData, err = parsedABI.Pack(methodName, args...); err != nil {
+		return outputData, fmt.Errorf("failed to parse abi, error: %v", err)
 	}
 
 	// 执行调用
 	var result []byte
-	for i := 0; i < num; i++ {
-		result, err = c.ethClient.CallContract(ctx, ethereum.CallMsg{
-			To:   &c.contractAddr,
+	for i := 0; i < ch.retryNum; i++ {
+		result, err = ch.ethClient.CallContract(ctx, ethereum.CallMsg{
+			To:   &contractAddr,
 			Data: callData,
 		}, nil)
 		if err == nil {
@@ -74,91 +74,76 @@ func ContractRead[T any](ctx context.Context, c *ContractReadHandler, methodName
 	}
 
 	// 解析返回值
-	if err = c.parsedABI.UnpackIntoInterface(&outputData, methodName, result); err != nil {
+	if err = parsedABI.UnpackIntoInterface(&outputData, methodName, result); err != nil {
 		return outputData, fmt.Errorf("failed to unpack result, error: %v", err)
 	}
 
 	return outputData, nil
 }
 
-type ContractWriteHandler struct {
-	*ContractReadHandler
-	privateKeyECDSA *ecdsa.PrivateKey
-	fromAddress     common.Address // 发起交易的地址
-	chainId         *big.Int
-}
+func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader, contractAddr common.Address, privateKey string, methodName string, args ...interface{}) (common.Hash, error) {
+	// 解析合约ABI
+	parsedABI, err := abi.JSON(abiReader)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to parse contract ABI, error: %v", err)
+	}
 
-func NewContractWriteHandler(ethClient *ethclient.Client, contractAddr string, abiReader io.Reader, privateKey string) *ContractWriteHandler {
 	// 解析私钥
-	privateKeyECDSA, err := crypto.HexToECDSA(privateKey)
-	if err != nil {
-		log.Fatalf("Invalid private key, error: %v", err)
+	var privateKeyECDSA *ecdsa.PrivateKey
+	if privateKeyECDSA, err = crypto.HexToECDSA(privateKey); err != nil {
+		return common.Hash{}, fmt.Errorf("invalid private key, error: %v", err)
 	}
 
-	// 获取当前网络的链ID
-	chainId, err := ethClient.NetworkID(context.Background())
-	if err != nil {
-		log.Fatalf("failed to get network ID, error: %v", err)
-	}
+	// 发起交易的地址
+	fromAddress := crypto.PubkeyToAddress(privateKeyECDSA.PublicKey)
 
-	return &ContractWriteHandler{
-		ContractReadHandler: NewContractReadHandler(ethClient, contractAddr, abiReader),
-		privateKeyECDSA:     privateKeyECDSA,
-		fromAddress:         crypto.PubkeyToAddress(privateKeyECDSA.PublicKey),
-		chainId:             chainId,
-	}
-}
-
-func ContractWrite(ctx context.Context, c *ContractWriteHandler, methodName string, args ...interface{}) (common.Hash, error) {
 	// 获取当前nonce
-	nonce, err := c.ethClient.PendingNonceAt(ctx, c.fromAddress)
-	if err != nil {
+	var nonce uint64
+	if nonce, err = ch.ethClient.PendingNonceAt(ctx, fromAddress); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to get nonce, error: %v", err)
 	}
 
 	// 准备合约方法调用的数据
 	var callData []byte
-	if callData, err = c.parsedABI.Pack(methodName, args...); err != nil {
+	if callData, err = parsedABI.Pack(methodName, args...); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to pack method call, error: %v", err)
 	}
 
 	// 估算所需的 Gas 限制
 	var gasLimit uint64
-	gasLimit, err = c.ethClient.EstimateGas(ctx, ethereum.CallMsg{
-		From: c.fromAddress,
-		To:   &c.contractAddr,
+	gasLimit, err = ch.ethClient.EstimateGas(ctx, ethereum.CallMsg{
+		From: fromAddress,
+		To:   &contractAddr,
 		Data: callData,
 	})
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("failed to estimate gas limit: %v", err)
+		return common.Hash{}, fmt.Errorf("failed to estimate gas limit, error: %v", err)
 	}
 
 	// 获取当前建议的 Gas 价格
 	var gasPrice *big.Int
-	if gasPrice, err = c.ethClient.SuggestGasPrice(ctx); err != nil {
-		return common.Hash{}, fmt.Errorf("failed to get suggested gas price: %v", err)
+	if gasPrice, err = ch.ethClient.SuggestGasPrice(ctx); err != nil {
+		return common.Hash{}, fmt.Errorf("failed to get suggested gas price, error: %v", err)
 	}
 
 	// 创建交易对象
-	tx := types.NewTransaction(nonce, c.contractAddr, big.NewInt(0), gasLimit, gasPrice, callData)
+	tx := types.NewTransaction(nonce, contractAddr, big.NewInt(0), gasLimit, gasPrice, callData)
 
 	// 签名交易
-	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(c.chainId), c.privateKeyECDSA)
-	if err != nil {
+	var signedTx *types.Transaction
+	if signedTx, err = types.SignTx(tx, types.NewEIP155Signer(ch.chainId), privateKeyECDSA); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to sign transaction, error: %v", err)
 	}
 
 	// 发送交易
-	err = c.ethClient.SendTransaction(ctx, signedTx)
-	if err != nil {
+	if err = ch.ethClient.SendTransaction(ctx, signedTx); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to send transaction, error: %v", err)
 	}
 
 	// 可选：等待交易确认
 	var receipt *types.Receipt
 	for {
-		receipt, err = c.ethClient.TransactionReceipt(ctx, signedTx.Hash())
-		if err == nil {
+		if receipt, err = ch.ethClient.TransactionReceipt(ctx, signedTx.Hash()); err == nil {
 			return receipt.TxHash, nil
 		}
 		if errors.Is(err, ethereum.NotFound) {
