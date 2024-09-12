@@ -31,3 +31,8 @@ func HexToStr(s string) (string, error) {
 func StrToHex(s string) string {
 	return fmt.Sprintf("0x%s", hex.EncodeToString([]byte(s)))
 }
+
+// StrToBytesHex ethi => 0x65746869
+func StrToBytesHex(s string) []byte {
+	return []byte(StrToHex(s))
+}
