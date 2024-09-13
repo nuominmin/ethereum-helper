@@ -109,16 +109,14 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader
 		return common.Hash{}, fmt.Errorf("failed to pack method call, error: %v", err)
 	}
 
-	// 估算所需的 Gas 限制
-	var gasLimit uint64
-	gasLimit, err = ch.ethClient.EstimateGas(ctx, ethereum.CallMsg{
-		From: fromAddress,
-		To:   &contractAddr,
-		Data: callData,
-	})
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("failed to estimate gas limit, error: %v", err)
+	// 获取当前区块的 Gas 限制
+	var header *types.Header
+
+	if header, err = ch.ethClient.HeaderByNumber(context.Background(), nil); err != nil {
+		return common.Hash{}, fmt.Errorf("failed to get header, error: %v", err)
 	}
+
+	gasLimit := header.GasLimit - 50000 // 减少 50000 个 Gas 单位，避免超过区块的 Gas 限制，导致交易失败
 
 	// 获取当前建议的 Gas 价格
 	var gasPrice *big.Int

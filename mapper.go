@@ -15,7 +15,7 @@ func TxIdToHash(txId *big.Int) string {
 
 // TxHashToId 0x9116cc00fe051805c1433e9705898afd22519cac1a5222d022a9a08530d9af3e => 65625641663004913611543007257256861518297599113210899750616375382861399306046
 func TxHashToId(txHash string) *big.Int {
-	return common.HexToHash("0x9116cc00fe051805c1433e9705898afd22519cac1a5222d022a9a08530d9af3e").Big()
+	return common.HexToHash(txHash).Big()
 }
 
 // HexToStr 0x65746869 => ethi
