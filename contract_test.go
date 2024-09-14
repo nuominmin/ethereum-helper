@@ -8,7 +8,6 @@ import (
 	ethereumhelper "github.com/nuominmin/ethereum-helper"
 	"github.com/shopspring/decimal"
 	"math/big"
-	"strings"
 	"testing"
 )
 
@@ -20,12 +19,12 @@ func TestContractRead(t *testing.T) {
 	}
 	ethClient := ethclient.NewClient(rpcClient)
 	contract := ethereumhelper.NewContractHandler(ethClient)
-	abi := strings.NewReader(ethereumhelper.ContractAbiJson)
+	abiJson := ethereumhelper.ContractAbiJson
 	contractAddr := common.HexToAddress(ethereumhelper.ContractAddr)
 	methodName := ethereumhelper.ContractReadMethodName
 
 	var res *big.Int
-	if res, err = ethereumhelper.ContractRead[*big.Int](context.Background(), contract, abi, contractAddr, methodName); err != nil {
+	if res, err = ethereumhelper.ContractRead[*big.Int](context.Background(), contract, abiJson, contractAddr, methodName); err != nil {
 		t.Error(err)
 		return
 	}
@@ -41,7 +40,7 @@ func TestContractWrite(t *testing.T) {
 	}
 	ethClient := ethclient.NewClient(rpcClient)
 	contract := ethereumhelper.NewContractHandler(ethClient)
-	abi := strings.NewReader(ethereumhelper.ContractAbiJson)
+	abi := ethereumhelper.ContractAbiJson
 	contractAddr := common.HexToAddress(ethereumhelper.ContractAddr)
 	methodName := ethereumhelper.ContractWriteMethodName
 	privateKey := ethereumhelper.PrivateKey

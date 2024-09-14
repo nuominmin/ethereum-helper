@@ -1,6 +1,7 @@
 package ethereumhelper
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"errors"
@@ -11,9 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"io"
 	"log"
 	"math/big"
+	"strings"
 	"time"
 )
 
@@ -41,11 +42,11 @@ func (c *ContractHandler) SetRetryNum(n int) {
 	c.retryNum = n + 1
 }
 
-func ContractRead[T any](ctx context.Context, ch *ContractHandler, abiReader io.Reader, contractAddr common.Address, methodName string, args ...interface{}) (T, error) {
+func ContractRead[T any](ctx context.Context, ch *ContractHandler, abiJson string, contractAddr common.Address, methodName string, args ...interface{}) (T, error) {
 	var outputData T
 
 	// 解析合约ABI
-	parsedABI, err := abi.JSON(abiReader)
+	parsedABI, err := abi.JSON(strings.NewReader(abiJson))
 	if err != nil {
 		return outputData, fmt.Errorf("failed to parse contract ABI, error: %v", err)
 	}
@@ -81,9 +82,9 @@ func ContractRead[T any](ctx context.Context, ch *ContractHandler, abiReader io.
 	return outputData, nil
 }
 
-func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader, contractAddr common.Address, privateKey string, methodName string, args ...interface{}) (common.Hash, error) {
+func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, contractAddr common.Address, privateKey string, methodName string, args ...interface{}) (common.Hash, error) {
 	// 解析合约ABI
-	parsedABI, err := abi.JSON(abiReader)
+	parsedABI, err := abi.JSON(strings.NewReader(abiJson))
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to parse contract ABI, error: %v", err)
 	}
@@ -127,7 +128,14 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader
 	gasPrice.SetInt64(1)
 
 	// 创建交易对象
-	tx := types.NewTransaction(nonce, contractAddr, big.NewInt(0), gasLimit, gasPrice, callData)
+	tx := types.NewTx(&types.LegacyTx{
+		Nonce:    nonce,
+		To:       &contractAddr,
+		Value:    big.NewInt(0),
+		Gas:      gasLimit,
+		GasPrice: gasPrice,
+		Data:     callData,
+	})
 
 	// 签名交易
 	var signedTx *types.Transaction
@@ -140,10 +148,35 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader
 		return common.Hash{}, fmt.Errorf("failed to send transaction, error: %v", err)
 	}
 
-	// 可选：等待交易确认
 	var receipt *types.Receipt
 	for {
 		if receipt, err = ch.ethClient.TransactionReceipt(ctx, signedTx.Hash()); err == nil {
+			if receipt.Status == types.ReceiptStatusFailed {
+				fmt.Println("Transaction failed, attempting to get revert reason...")
+
+				//msg := ethereum.CallMsg{
+				//	From: fromAddress,
+				//	To:   &contractAddr,
+				//	Gas:  gasPrice.Uint64(),
+				//	Data: receipt.TxHash.Bytes(),
+				//}
+				msg := ethereum.CallMsg{
+					From:     fromAddress,   // 从哪个地址发起调用
+					To:       &contractAddr, // 合约地址
+					Gas:      gasLimit,      // 让客户端估算所需的Gas
+					GasPrice: gasPrice,      // Gas价格设置为0，因为只是模拟执行
+					Value:    big.NewInt(0), // 发送的价值为0
+					Data:     callData,      // 调用合约的数据
+				}
+
+				var res []byte
+				if res, err = ch.ethClient.CallContract(ctx, msg, nil); err != nil {
+					return common.Hash{}, fmt.Errorf("failed to retrieve revert reason, error: %v", err)
+				}
+
+				return common.Hash{}, fmt.Errorf("contract execution failed. %s", string(res))
+			}
+
 			return receipt.TxHash, nil
 		}
 		if errors.Is(err, ethereum.NotFound) {
@@ -152,4 +185,35 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader
 		}
 		return common.Hash{}, fmt.Errorf("failed to get transaction receipt, error: %v", err)
 	}
+}
+
+// ErrorSignature 是标准的 Error(string) 函数的签名哈希
+var ErrorSignature = []byte{0x08, 0xc3, 0x79, 0xa0} // keccak256("Error(string)") 的前 4 个字节
+
+func parseRevertReason(result []byte) (string, error) {
+	if len(result) < 4 || !bytes.Equal(result[:4], ErrorSignature) {
+		return "", fmt.Errorf("no revert reason")
+	}
+
+	// 使用 abi.NewType 来创建 string 类型
+	stringType, err := abi.NewType("string", "", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create string ABI type: %v", err)
+	}
+
+	// 剩余部分是ABI编码的错误消息，尝试解码为字符串
+	errorAbi, err := abi.Arguments{
+		{Type: stringType},
+	}.Unpack(result[4:])
+	if err != nil {
+		return "", fmt.Errorf("failed to unpack revert reason: %v", err)
+	}
+
+	if len(errorAbi) > 0 {
+		if reason, ok := errorAbi[0].(string); ok {
+			return reason, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to parse revert reason")
 }
