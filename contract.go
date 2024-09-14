@@ -124,6 +124,8 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiReader io.Reader
 		return common.Hash{}, fmt.Errorf("failed to get suggested gas price, error: %v", err)
 	}
 
+	gasPrice.SetInt64(1)
+
 	// 创建交易对象
 	tx := types.NewTransaction(nonce, contractAddr, big.NewInt(0), gasLimit, gasPrice, callData)
 
