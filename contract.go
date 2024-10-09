@@ -33,7 +33,7 @@ func NewContractHandler(ethClient *ethclient.Client) *ContractHandler {
 
 	return &ContractHandler{
 		ethClient: ethClient,
-		retryNum:  1,
+		retryNum:  3,
 		chainId:   chainId,
 	}
 }
@@ -144,8 +144,30 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 	}
 
 	// 发送交易
-	if err = ch.ethClient.SendTransaction(ctx, signedTx); err != nil {
-		return common.Hash{}, fmt.Errorf("failed to send transaction, error: %v", err)
+	for i := 0; i < ch.retryNum; i++ {
+		if err = ch.ethClient.SendTransaction(ctx, signedTx); err == nil {
+			break
+		}
+
+		if strings.Contains(err.Error(), "transaction underpriced") {
+			gasPrice = gasPrice.Mul(gasPrice, big.NewInt(2)) // 每次失败时将 gas price 提高一倍
+			tx = types.NewTx(&types.LegacyTx{
+				Nonce:    nonce,
+				To:       &contractAddr,
+				Value:    big.NewInt(0),
+				Gas:      gasLimit,
+				GasPrice: gasPrice,
+				Data:     callData,
+			})
+			signedTx, err = types.SignTx(tx, types.NewEIP155Signer(ch.chainId), privateKeyECDSA)
+			if err != nil {
+				return common.Hash{}, fmt.Errorf("failed to sign transaction after gas adjustment, error: %v", err)
+			}
+		} else {
+			return common.Hash{}, fmt.Errorf("failed to send transaction, error: %v", err)
+		}
+
+		time.Sleep(time.Duration((i+1)*200) * time.Millisecond)
 	}
 
 	var receipt *types.Receipt
