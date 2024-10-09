@@ -112,8 +112,7 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 
 	// 获取当前区块的 Gas 限制
 	var header *types.Header
-
-	if header, err = ch.ethClient.HeaderByNumber(context.Background(), nil); err != nil {
+	if header, err = ch.ethClient.HeaderByNumber(ctx, nil); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to get header, error: %v", err)
 	}
 
@@ -143,7 +142,6 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 		return common.Hash{}, fmt.Errorf("failed to sign transaction, error: %v", err)
 	}
 
-	// 发送交易
 	for i := 0; i < ch.retryNum; i++ {
 		if err = ch.ethClient.SendTransaction(ctx, signedTx); err == nil {
 			break
@@ -171,41 +169,44 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 	}
 
 	var receipt *types.Receipt
+
+	timeout := 30 * time.Second
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	for {
-		if receipt, err = ch.ethClient.TransactionReceipt(ctx, signedTx.Hash()); err == nil {
-			if receipt.Status == types.ReceiptStatusFailed {
-				fmt.Println("Transaction failed, attempting to get revert reason...")
+		select {
+		case <-ctxWithTimeout.Done():
+			return common.Hash{}, fmt.Errorf("transaction receipt retrieval timed out after %v", timeout)
+		default:
+			if receipt, err = ch.ethClient.TransactionReceipt(ctx, signedTx.Hash()); err == nil {
+				if receipt.Status == types.ReceiptStatusFailed {
 
-				//msg := ethereum.CallMsg{
-				//	From: fromAddress,
-				//	To:   &contractAddr,
-				//	Gas:  gasPrice.Uint64(),
-				//	Data: receipt.TxHash.Bytes(),
-				//}
-				msg := ethereum.CallMsg{
-					From:     fromAddress,   // 从哪个地址发起调用
-					To:       &contractAddr, // 合约地址
-					Gas:      gasLimit,      // 让客户端估算所需的Gas
-					GasPrice: gasPrice,      // Gas价格设置为0，因为只是模拟执行
-					Value:    big.NewInt(0), // 发送的价值为0
-					Data:     callData,      // 调用合约的数据
+					msg := ethereum.CallMsg{
+						From:     fromAddress,   // 从哪个地址发起调用
+						To:       &contractAddr, // 合约地址
+						Gas:      gasLimit,      // 让客户端估算所需的Gas
+						GasPrice: gasPrice,      // Gas价格设置为0，因为只是模拟执行
+						Value:    big.NewInt(0), // 发送的价值为0
+						Data:     callData,      // 调用合约的数据
+					}
+
+					var res []byte
+					if res, err = ch.ethClient.CallContract(ctx, msg, nil); err != nil {
+						return common.Hash{}, fmt.Errorf("failed to retrieve revert reason, error: %v", err)
+					}
+
+					return common.Hash{}, fmt.Errorf("contract execution failed. %s", string(res))
 				}
 
-				var res []byte
-				if res, err = ch.ethClient.CallContract(ctx, msg, nil); err != nil {
-					return common.Hash{}, fmt.Errorf("failed to retrieve revert reason, error: %v", err)
-				}
-
-				return common.Hash{}, fmt.Errorf("contract execution failed. %s", string(res))
+				return receipt.TxHash, nil
 			}
 
-			return receipt.TxHash, nil
+			if errors.Is(err, ethereum.NotFound) {
+				time.Sleep(time.Second * 1)
+				continue
+			}
+			return common.Hash{}, fmt.Errorf("failed to get transaction receipt, error: %v", err)
 		}
-		if errors.Is(err, ethereum.NotFound) {
-			time.Sleep(time.Second * 2) // 等待2秒钟再查询
-			continue
-		}
-		return common.Hash{}, fmt.Errorf("failed to get transaction receipt, error: %v", err)
 	}
 }
 
