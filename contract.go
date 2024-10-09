@@ -111,20 +111,16 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 	}
 
 	// 获取当前区块的 Gas 限制
-	var header *types.Header
-	if header, err = ch.ethClient.HeaderByNumber(ctx, nil); err != nil {
-		return common.Hash{}, fmt.Errorf("failed to get header, error: %v", err)
+	var gasLimit uint64
+	if gasLimit, err = getGasLimit(ctx, ch, fromAddress, contractAddr, callData); err != nil {
+		return common.Hash{}, fmt.Errorf("failed to get gas limit, error: %v", err)
 	}
-
-	gasLimit := header.GasLimit - 50000 // 减少 50000 个 Gas 单位，避免超过区块的 Gas 限制，导致交易失败
 
 	// 获取当前建议的 Gas 价格
 	var gasPrice *big.Int
-	if gasPrice, err = ch.ethClient.SuggestGasPrice(ctx); err != nil {
+	if gasPrice, err = getGasPrice(ctx, ch); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to get suggested gas price, error: %v", err)
 	}
-
-	gasPrice.SetInt64(1)
 
 	// 创建交易对象
 	tx := types.NewTx(&types.LegacyTx{
@@ -168,6 +164,7 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 		time.Sleep(time.Duration((i+1)*200) * time.Millisecond)
 	}
 
+	fmt.Println("signedTx.Hash()", signedTx.Hash())
 	var receipt *types.Receipt
 
 	timeout := 30 * time.Second
@@ -208,6 +205,38 @@ func ContractWrite(ctx context.Context, ch *ContractHandler, abiJson string, con
 			return common.Hash{}, fmt.Errorf("failed to get transaction receipt, error: %v", err)
 		}
 	}
+}
+
+func getGasLimit(ctx context.Context, ch *ContractHandler, fromAddress, contractAddr common.Address, callData []byte) (uint64, error) {
+	// 估算所需的 Gas 限制
+	gasLimit, err := ch.ethClient.EstimateGas(ctx, ethereum.CallMsg{
+		From: fromAddress,
+		To:   &contractAddr,
+		Data: callData,
+	})
+	if err == nil {
+		return gasLimit, nil
+	}
+
+	var header *types.Header
+	if header, err = ch.ethClient.HeaderByNumber(ctx, nil); err != nil {
+		return 0, fmt.Errorf("failed to get header, error: %v", err)
+	}
+
+	//gasLimit := header.GasLimit - 50000 // 减少 50000 个 Gas 单位，避免超过区块的 Gas 限制，导致交易失败
+
+	return header.GasLimit, nil
+}
+
+func getGasPrice(ctx context.Context, ch *ContractHandler) (*big.Int, error) {
+	// 获取当前建议的 Gas 价格
+	gasPrice, err := ch.ethClient.SuggestGasPrice(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	//gasPrice = gasPrice.Mul(gasPrice, big.NewInt(2))
+	return gasPrice, nil
 }
 
 // ErrorSignature 是标准的 Error(string) 函数的签名哈希
